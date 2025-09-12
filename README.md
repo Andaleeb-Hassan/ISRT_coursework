@@ -1,1 +1,1 @@
-Contains likelyhood based inference, multivariate statistics and research methodology.
+Contains likelihood based inference, multivariate statistics and research methodology.

@@ -1,0 +1,95 @@
+---
+title: "Bayesian Inference I"
+author: "Andaleeb Hassan"
+format: pdf
+editor: visual
+---
+
+```{r,message= FALSE, warning=FALSE}
+library(tidyverse)
+library(gridExtra)
+```
+
+# problem 1
+
+$$\begin{aligned}
+Prior \ :& \ \theta \sim Beta(a,b) \\
+Sampling \ model \ :& \ y|\theta \sim  Binomial(n,\theta) \\
+Posterior \ :& \ \theta|y \sim Beta(a+y, \  b-n+y)
+\end{aligned}$$
+
+```{r}
+
+x <- seq(0,1,length.out = 10000)
+y11 <- dunif(x)
+y12 <- dbeta(x,2,5)
+m1 <- ggplot()+
+  geom_line(aes(x,y11))+
+  geom_line(aes(x,y12))+
+  theme_bw()
+
+y21 <- dbeta(x,3,2)
+y22 <- dbeta(x,4,6)
+
+m2 <- ggplot()+
+  geom_line(aes(x,y21))+
+  geom_line(aes(x,y22))+
+  theme_bw()
+
+y31 <- dbeta(x,1,1)
+y32 <- dbeta(x,21,81)
+
+
+m3 <- ggplot()+
+  geom_line(aes(x,y31))+
+  geom_line(aes(x,y32))+
+  theme_bw()
+
+y41 <- dbeta(x,3,2)
+y42 <- dbeta(x,23,82)
+
+m4 <- ggplot()+
+  geom_line(aes(x,y41))+
+  geom_line(aes(x,y42))+
+  theme_bw()
+
+grid.arrange(m1,m2,m3,m4,nrow =2)
+```
+
+\newpage
+
+# problem 2
+
+Sensitivity analysis:\newline Parameters of beta distribution a and b in terms of $\theta_0 = \frac{a}{a+b}$ and $\eta_{0} = a+b$, so that $a = \theta_{0}\eta_0$ and $b = (1-\theta_0)\eta_0$. For each $\theta_0 \in \{0.1, \ 0.2, \ldots, \ 0.9 \}$ and $\eta_0 \in \{1, \ 2,\ 8 ,\ 16, \ 32 \}$.\newline
+
+Find: \newline
+1. Corresponding a, b values.\newline 
+2. $Pr(\theta >0.5 \ |\sum Y_{i} = 57 )$
+
+```{r}
+theta_not  <- seq(.1,.9,by =.1)
+eta_not    <- c(1, 2, 4, 8, 16, 32)
+
+data <- tibble( theta = theta_not)
+
+data <- data %>% 
+  expand_grid(tibble(eta = eta_not))
+
+
+data <- data%>%
+  mutate(density =  pbeta(.5,theta*eta+57,eta*(1-theta)-57+100,
+                          lower.tail = FALSE ),
+         a = theta*eta,
+         b = eta*(1-theta))
+
+
+
+ggplot(data =data)+
+  geom_contour(
+    aes(y= theta, x = eta,
+                   z = density, 
+        color = after_stat(level)))+
+  labs(y = expression(theta),
+       x = expression(eta))+
+  theme_minimal()
+```

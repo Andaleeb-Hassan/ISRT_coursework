@@ -1,0 +1,307 @@
+---
+title: "Fisher Randomization Tests for Treatment Effects"
+subtitle: "Causal Inference Assignment II "
+author: "Andaleeb Hassan"
+format:
+  pdf:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    colorlinks: true
+    geometry:
+      - margin=1in
+editor: visual
+---
+
+```{r, include=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+```
+
+# Question 1: Fisher Randomization Tests
+
+Reanalyze the experimental data using Fisher's randomization test (FRT) with
+different test statistics. The null hypothesis is that the treatment has no
+effect on any individual:
+
+$$
+H_0: \tau_i = 0, \quad \forall i = 1,2,\ldots,n.
+$$
+
+## Load and Prepare the Data
+
+```{r}
+lalonde <- read.table(
+  "C:/Users/USER/Downloads/cps1re74.csv",
+  header = TRUE
+) |>
+  as_tibble() |>
+  mutate(
+    u74 = as.numeric(re74 == 0),
+    u75 = as.numeric(re75 == 0)
+  )
+
+head(lalonde)
+```
+
+Define the number of observations and the number of treated individuals.
+
+```{r}
+n <- nrow(lalonde)
+n1 <- sum(lalonde$treat == 1)
+
+treat_permut <- function(n, n1) {
+  A <- rep(0, n)
+  A[sample(1:n, n1)] <- 1
+  return(A)
+}
+```
+
+## Approach I: Residual-Based Test Statistic
+
+First, regress the outcome on all available covariates, excluding the treatment
+variable, and obtain the residuals.
+
+```{r}
+model <- lm(re78 ~ . - treat, data = lalonde)
+res <- model$residuals
+```
+
+Define the test statistic as the absolute difference between the mean residuals
+of the treatment and comparison groups:
+
+$$
+T = \left|\overline{e}_1 - \overline{e}_0\right|,
+$$
+
+where $\overline{e}_1$ and $\overline{e}_0$ denote the mean residuals in the
+treated and untreated groups, respectively.
+
+```{r}
+abs_res_diff <- function(A, res) {
+  abs(mean(res[A == 1]) - mean(res[A == 0]))
+}
+
+I_0 <- abs_res_diff(lalonde$treat, res)
+
+I_0
+```
+
+Generate random treatment assignments while keeping the number of treated
+individuals fixed. Use these assignments to approximate the randomization
+distribution under the null hypothesis.
+
+```{r}
+set.seed(007)
+
+B <- 10000
+
+I <- numeric(B)
+
+for (i in 1:B) {
+  comb <- treat_permut(n, n1)
+  I[i] <- abs_res_diff(comb, res)
+}
+
+p_val_I <- mean(I >= I_0)
+
+p_val_I
+```
+
+The Fisher randomization p-value is the proportion of permuted test statistics
+that are at least as large as the observed statistic.
+
+### Randomization Distribution
+
+```{r}
+ggplot(data.frame(I = I), aes(x = I)) +
+  geom_histogram(
+    bins = 50,
+    color = "black",
+    fill = "steelblue"
+  ) +
+  geom_vline(
+    xintercept = I_0,
+    linewidth = 1,
+    linetype = "dashed"
+  ) +
+  labs(
+    title = "Fisher Randomization Distribution: Approach I",
+    x = "Absolute Difference in Mean Residuals",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+## Approach II: Treatment Coefficient as the Test Statistic
+
+Fit a linear regression model of the outcome on treatment and all available
+covariates. Use the estimated treatment coefficient as the observed test
+statistic.
+
+$$
+\mathrm{re78}_i =
+\beta_0 + \beta_1\mathrm{treat}_i
++ \sum_{j=2}^{p}\beta_j X_{ij} + \varepsilon_i,
+$$
+
+where $\beta_1$ is the treatment coefficient.
+
+```{r}
+model2 <- lm(re78 ~ ., data = lalonde)
+
+coef_0 <- coef(model2)["treat"]
+
+coef_0
+```
+
+Permute the treatment assignments while keeping the number of treated
+individuals fixed, refit the regression model, and record the treatment
+coefficient for each permutation.
+
+```{r}
+set.seed(007)
+
+coef <- numeric(B)
+data <- lalonde
+
+for (i in 1:B) {
+  data$treat <- treat_permut(n, n1)
+
+  fit <- lm(re78 ~ ., data = data)
+
+  coef[i] <- coef(fit)["treat"]
+}
+
+p_value_II <- mean(abs(coef) >= abs(coef_0))
+
+p_value_II
+```
+
+The two-sided Fisher randomization p-value is
+
+$$
+p = \frac{1}{B}
+\sum_{b=1}^{B}
+\mathbf{1}\left(
+|T_b| \geq |T_{\mathrm{obs}}|
+\right),
+$$
+
+where $T_{\mathrm{obs}}$ is the observed treatment coefficient and $T_b$ is
+the coefficient obtained from the $b$th permuted dataset.
+
+### Randomization Distribution
+
+```{r}
+ggplot(data.frame(coef = coef), aes(x = coef)) +
+  geom_histogram(
+    bins = 50,
+    color = "black",
+    fill = "steelblue"
+  ) +
+  geom_vline(
+    xintercept = coef_0,
+    linewidth = 1,
+    linetype = "dashed"
+  ) +
+  labs(
+    title = "Fisher Randomization Distribution: Approach II",
+    x = "Treatment Coefficient",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+## Approach III: Binary Outcome and Logistic Regression
+
+Create a binary outcome that equals 1 when `re78` is positive and 0 otherwise.
+
+```{r}
+data <- lalonde |>
+  mutate(bin78 = ifelse(re78 > 0, 1, 0))
+```
+
+Fit a logistic regression model of the binary outcome on treatment and the
+covariates, excluding the original continuous outcome `re78`.
+
+The model is
+
+$$
+\log\left(
+\frac{P(\mathrm{bin78}_i=1)}
+{1-P(\mathrm{bin78}_i=1)}
+\right)
+=
+\beta_0 + \beta_1\mathrm{treat}_i
++ \sum_{j=2}^{p}\beta_j X_{ij}.
+$$
+
+```{r}
+logit <- glm(
+  bin78 ~ . - re78,
+  data = data,
+  family = binomial(link = "logit")
+)
+
+summary(logit)
+```
+
+The coefficient of `treat` represents the estimated change in log-odds of
+having positive earnings in 1978, conditional on the other predictors. Its
+statistical significance can be assessed using the coefficient's p-value in
+the regression summary.
+
+### Fisher Randomization Test for the Logistic Regression Coefficient
+
+Use the treatment coefficient from the logistic regression as the test
+statistic. Randomly permute the treatment assignments, refit the logistic
+regression for each permutation, and calculate the two-sided randomization
+p-value.
+
+```{r}
+set.seed(007)
+
+B <- 2000
+
+coef_0 <- coef(logit)["treat"]
+
+coef <- numeric(B)
+
+for (i in 1:B) {
+  data$treat <- treat_permut(n, n1)
+
+  fit <- glm(
+    bin78 ~ . - re78,
+    data = data,
+    family = binomial(link = "logit")
+  )
+
+  coef[i] <- coef(fit)["treat"]
+}
+
+p_val_III <- mean(abs(coef) >= abs(coef_0))
+
+p_val_III
+```
+
+### Randomization Distribution
+
+```{r}
+ggplot(data.frame(coef = coef), aes(x = coef)) +
+  geom_histogram(
+    bins = 20,
+    fill = "steelblue",
+    color = "black"
+  ) +
+  geom_vline(
+    xintercept = coef_0,
+    linetype = "dashed"
+  ) +
+  labs(
+    title = "Fisher Randomization Distribution: Logistic Regression",
+    x = "Treatment Coefficient",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```

@@ -1,0 +1,358 @@
+---
+title: "Regression Analysis and Callback Study"
+subtitle: "Causal Inference Assignment I"
+author: "Andaleeb Hassan"
+format:
+  pdf:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    colorlinks: true
+    geometry:
+      - margin=1in
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# Question 1: Treatment Effects Using the Lalonde Data
+
+## Data and Objective
+
+The `cps1re74.csv` dataset is available in this repository under the **Causal Inference** folder. The objective is to estimate the effect of treatment status (`treat`) on real earnings in 1978 (`re78`). Two additional indicator variables are generated to identify individuals whose earnings were zero in 1974 or 1975.
+
+The simple regression model is
+
+$$
+\mathrm{re78}_i = \beta_0 + \beta_1\mathrm{treat}_i + \varepsilon_i,
+$$
+
+where $\beta_1$ represents the unadjusted difference in mean 1978 earnings between the treatment and comparison groups.
+
+## Load and Prepare the Data
+
+```{r}
+library(tidyverse)
+
+lalonde <- read.table(
+  "C:/Users/USER/Downloads/cps1re74.csv",
+  header = TRUE
+) |>
+  as_tibble() |>
+  mutate(
+    u74 = as.numeric(re74 == 0),
+    u75 = as.numeric(re75 == 0)
+  )
+
+dim(lalonde)
+head(lalonde)
+```
+
+The variables `u74` and `u75` equal 1 when earnings in the corresponding year are zero and 0 otherwise.
+
+## 1(a) Regression of `re78` on `treat`
+
+Estimate the simple linear regression model:
+
+$$
+\mathrm{re78}_i = \beta_0 + \beta_1\mathrm{treat}_i + \varepsilon_i.
+$$
+
+```{r}
+m1 <- lm(re78 ~ treat, data = lalonde)
+summary(m1)
+```
+
+The estimated coefficient of `treat` gives the estimated difference in mean 1978 earnings between treated and untreated individuals. Describe the coefficient, its statistical significance, and the model's $R^2$.
+
+## 1(b) Regression of `re78` on All Available Predictors
+
+Fit a multiple linear regression model including `treat` and all other available predictors, including the two generated indicators.
+
+$$
+\mathrm{re78}_i =
+\beta_0 + \beta_1\mathrm{treat}_i
++ \sum_{j=2}^{p}\beta_j X_{ij} + \varepsilon_i,
+$$
+
+where $X_{ij}$ denotes the additional predictors.
+
+```{r}
+m2 <- lm(re78 ~ ., data = lalonde)
+summary(m2)
+```
+
+In this model, the coefficient of `treat` estimates the difference in 1978 earnings between treatment groups after adjusting for the other included predictors.
+
+## 1(c) Regression Models Using All Subsets of Predictors
+
+Fit every possible subset of the ten candidate predictors while including `treat` in every model.
+
+The candidate predictors are:
+
+```{r}
+x <- c(
+  "age", "educ", "black", "hispan", "married", "nodegree",
+  "re74", "re75", "u74", "u75"
+)
+```
+
+For each subset $S$, the regression model is
+
+$$
+\mathrm{re78}_i =
+\beta_0 + \beta_1\mathrm{treat}_i
++ \sum_{j \in S}\beta_j X_{ij} + \varepsilon_i.
+$$
+
+### Fit All Subset Models
+
+```{r}
+y <- "re78"
+
+combs <- unlist(
+  lapply(
+    0:length(x),
+    function(k) combn(x, k, simplify = FALSE)
+  ),
+  recursive = FALSE
+)
+
+res <- data.frame(
+  regs = character(),
+  coef = numeric(),
+  p_value = numeric(),
+  direction = character(),
+  significance = character(),
+  stringsAsFactors = FALSE
+)
+
+for (j in combs) {
+
+  rhs <- c("treat", j)
+
+  formula <- as.formula(
+    paste(y, "~", paste(rhs, collapse = " + "))
+  )
+
+  fit <- lm(formula, data = lalonde)
+  coef_table <- summary(fit)$coefficients
+
+  treatment_estimate <- coef_table["treat", "Estimate"]
+  treatment_p_value <- coef_table["treat", "Pr(>|t|)"]
+
+  res <- rbind(
+    res,
+    data.frame(
+      regs = if (length(j) == 0) {
+        "(No additional predictors)"
+      } else {
+        paste(j, collapse = ", ")
+      },
+      coef = treatment_estimate,
+      p_value = treatment_p_value,
+      direction = ifelse(
+        treatment_estimate > 0,
+        "Positive",
+        "Negative"
+      ),
+      significance = ifelse(
+        treatment_p_value < 0.05,
+        "Significant",
+        "Not significant"
+      ),
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+head(res)
+```
+
+There are $2^{10}=1024$ possible subsets of the ten candidate predictors. Thus, 1,024 regression models are fitted, each including `treat`.
+
+### Count Significant and Nonsignificant Coefficients
+
+```{r}
+table(
+  factor(
+    res$significance,
+    levels = c("Significant", "Not significant")
+  )
+)
+```
+
+### Count Positive and Negative Significant Coefficients
+
+```{r}
+significant_direction_counts <- table(
+  factor(
+    res$direction,
+    levels = c("Positive", "Negative")
+  ),
+  factor(
+    res$significance,
+    levels = c("Significant", "Not significant")
+  )
+)
+
+significant_direction_counts
+
+# Positively significant coefficients
+significant_direction_counts["Positive", "Significant"]
+
+# Negatively significant coefficients
+significant_direction_counts["Negative", "Significant"]
+
+# Nonsignificant coefficients
+sum(res$significance == "Not significant")
+```
+
+### Visualize Statistical Significance
+
+```{r}
+ggplot(res, aes(x = significance)) +
+  geom_bar(fill = "steelblue", color = "black") +
+  labs(
+    title = "Significance of Treatment Coefficients",
+    x = "Statistical significance",
+    y = "Number of regression models"
+  ) +
+  theme_minimal()
+```
+
+### Distribution of Treatment Coefficients
+
+```{r}
+ggplot(res, aes(x = coef)) +
+  geom_histogram(
+    bins = 30,
+    fill = "steelblue",
+    color = "black"
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    title = "Treatment Coefficients Across All Subset Models",
+    x = "Estimated coefficient of treat",
+    y = "Number of models"
+  ) +
+  theme_minimal()
+```
+
+### Models with the Smallest P-values
+
+```{r}
+res |>
+  arrange(p_value) |>
+  slice_head(n = 10)
+```
+
+# Question 2: Race and Callback Rates in the Resume Data
+
+## Data and Objective
+
+The `resume.csv` dataset is provided through Google Classroom. The objective is to examine whether race is associated with callback status. The variable `race` identifies the race group, while `call` indicates whether an applicant received a callback.
+
+## Load the Data
+
+```{r}
+resume <- read_csv("C:/Users/USER/Downloads/resume.csv")
+
+head(resume)
+glimpse(resume)
+```
+
+## 2(a) Summary Table by Race
+
+Calculate the total number of applicants, numbers of male and female applicants, number of callbacks, and callback rate for each race group.
+
+```{r}
+race_summary <- resume |>
+  group_by(race) |>
+  summarise(
+    total = n(),
+    male = sum(sex == "male"),
+    female = sum(sex == "female"),
+    callback = sum(call == 1),
+    callback_rate = mean(call),
+    .groups = "drop"
+  )
+
+race_summary
+```
+
+The callback rate is calculated as
+
+$$
+\widehat{p}_{\mathrm{callback}}
+=
+\frac{\text{Number of applicants receiving callbacks}}
+{\text{Total number of applicants}}.
+$$
+
+## 2(b) Contingency Table and Chi-squared Test
+
+Construct a contingency table of race and callback status.
+
+```{r}
+tab <- table(resume$race, resume$call)
+
+tab
+```
+
+The hypotheses are
+
+$$
+H_0: \text{Race and callback status are independent},
+$$
+
+$$
+H_1: \text{Race and callback status are associated}.
+$$
+
+The Pearson chi-squared test statistic is
+
+$$
+\chi^2 =
+\sum_{i=1}^{r}\sum_{j=1}^{c}
+\frac{(O_{ij}-E_{ij})^2}{E_{ij}},
+$$
+
+where $O_{ij}$ and $E_{ij}$ are the observed and expected cell counts.
+
+```{r}
+chisq.test(tab)
+```
+
+At the 5% significance level, compare the p-value with 0.05 to determine whether there is evidence of an association between race and callback status.
+
+## 2(c) Subgroup Analyses by Sex
+
+Repeat the contingency-table analysis separately for male and female applicants.
+
+### Male Applicants
+
+```{r}
+male_data <- resume |>
+  filter(sex == "male")
+
+tab_m <- table(male_data$race, male_data$call)
+
+tab_m
+chisq.test(tab_m)
+```
+
+### Female Applicants
+
+```{r}
+female_data <- resume |>
+  filter(sex == "female")
+
+tab_f <- table(female_data$race, female_data$call)
+
+tab_f
+chisq.test(tab_f)
+```
+
+Compare the p-values and callback patterns from the two subgroup analyses. Discuss whether the evidence of an association between race and callback status appears similar for male and female applicants.
